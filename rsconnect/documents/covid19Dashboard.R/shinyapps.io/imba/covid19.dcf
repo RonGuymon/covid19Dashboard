@@ -1,0 +1,12 @@
+name: covid19
+title: covid19
+username:
+account: imba
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 2084279
+bundleId: 3013989
+url: https://imba.shinyapps.io/covid19/
+when: 1586904134.14632
+asMultiple: FALSE
+asStatic: FALSE

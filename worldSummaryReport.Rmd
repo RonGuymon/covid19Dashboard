@@ -1,0 +1,145 @@
+---
+title: "iMBA Covid19 Summary Report"
+author: "`r params$username`"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+always_allow_html: yes
+classoption: landscape
+output:
+  pdf_document:
+    toc: yes
+header-includes:
+  - \usepackage{fancyhdr}
+params:
+  username: NA
+  mostRecent: NA
+  countriesSelected: NA
+  tpcRadioCountry: NA
+  coronaColors: NA
+  countrySummary: NA
+  fbdw: NA
+---
+\addtolength{\headheight}{1.0cm}
+\pagestyle{fancyplain}
+\rhead{\includegraphics[height=1.0cm]{/srv/connect/apps/covid19/www/kingfisher.png}}
+\pagebreak
+<!--srv/connect/apps/covid19/www/kingfisher.png -->
+```{r, echo=F, message=F}
+# If running locally
+# \rhead{\includegraphics[height=1.0cm]{/Users/rnguymon/Box Sync/(Focus Area 4) Business Analytics/1. Course 1 (Guymon & Khandelwal)/HE Material/Live Sessions/Live Session 1/covidDashboard/dashboard/www/kingfisher.png}}
+# <!--/Users/rnguymon/Box Sync/(Focus Area 4) Business Analytics/1. Course 1 (Guymon & Khandelwal)/HE Material/Live Sessions/Live Session 1/covidDashboard/dashboard/www/kingfisher.png -->
+
+# If running on web
+# \rhead{\includegraphics[height=1.0cm]{/srv/connect/apps/covid19/www/kingfisher.png}}
+# <!--srv/connect/apps/covid19/www/kingfisher.png -->
+```
+
+# Country Stats   
+Arranged in descending order of newly confirmed cases.
+
+```{r, echo = F, message=F}
+# Filter table
+    tData <- params$mostRecent[,c('country', 'date', 'confirmed', 'deaths'
+                           , 'recovered', 'newConfirmed', 'newDeaths'
+                           , 'newRecovered', 'deathRate')] %>%
+    dplyr::filter(country %in% params$countriesSelected)
+    # Cols
+    bigNums <- c('confirmed', 'deaths'
+                 , 'recovered', 'newConfirmed', 'newDeaths'
+                 , 'newRecovered')
+    
+    print(tData, n = nrow(tData))
+```
+
+\pagebreak
+# Confirmed Cases, Deaths, and Recoveries  
+`r params$countriesSelected`  
+
+
+```{r, echo = F, message=F}
+curveData <- params$countrySummary %>%
+      dplyr::filter(country %in% params$countriesSelected)
+    if(params$tpcRadioCountry == 'total'){
+      curveData %<>%
+        group_by(date) %>%
+        dplyr::summarise(CONFIRMED = sum(newConfirmed, na.rm = T)
+                         , DEATHS = sum(newDeaths, na.rm = T)
+                         , RECOVERED = sum(newRecovered, na.rm = T)) %>%
+        ungroup() %>%
+        pivot_longer(cols = c('CONFIRMED', 'DEATHS', 'RECOVERED')
+                     , names_to = 'type')
+      ylab <- 'Observations Per Day'
+    } else{
+      curveData %<>%
+        group_by(date) %>%
+        dplyr::summarise(CONFIRMED = sum(newConfirmed, na.rm = T)/sum(population, na.rm = T)
+                         , DEATHS = sum(newDeaths, na.rm = T)/sum(population, na.rm = T)
+                         , RECOVERED = sum(newRecovered, na.rm = T)/sum(population, na.rm = T)) %>%
+        ungroup() %>%
+        pivot_longer(cols = c('CONFIRMED', 'DEATHS', 'RECOVERED')
+                     , names_to = 'type')
+      ylab <- 'Observations Per Day (per million)'
+    }
+recentData <- curveData %>% dplyr::filter(date == max(date, na.rm = T)) %>% 
+  dplyr::mutate(
+    value = prettyNum(value, big.mark = ',', big.interval = 3)
+  )
+recentC <- recentData %>% dplyr::filter(type == 'CONFIRMED') %>% pull(value)
+recentD <-  recentData %>% dplyr::filter(type == 'DEATHS') %>% pull(value)
+recentR <-  recentData %>% dplyr::filter(type == 'RECOVERED') %>% pull(value)
+subt <- paste0('Yesterday: Confirmed = ', recentC, ', Deaths = ', recentD, ', Recovered = ', recentR)
+    curvePlot <- ggplot(curveData, aes(x = date, y = value, color = type)) +
+      # geom_smooth() +
+      geom_line() +
+      scale_color_manual(values = params$coronaColors$color) +
+      labs( #title = 'Confirmed, Deaths, Recovered Per Day'
+           subtitle = subt
+           , x = 'Date'
+           , y = ylab)
+    curvePlot
+```
+\pagebreak
+# Cumulative Numbers
+```{r, echo = F, message=F}
+    pd <- params$fbdw
+    ncount <- length(unique(pd$country))
+
+    if(params$tpcRadioCountry == 'total'){
+      if(ncount > 10){
+        pd %<>% group_by(date) %>%
+          dplyr::summarise(confirmed = sum(confirmed, na.rm = T)) %>%
+          ungroup()
+        p <- ggplot(pd, aes(x = date, y = confirmed)) +
+          geom_line() +
+          labs(title = 'Worldwide Cases'
+               , x = 'Date'
+               , y = 'Cumulative Cases')
+      }else{
+        pd %<>% dplyr::filter(baseDay > 0)
+        p <- ggplot(pd, aes(x = baseDay, y = confirmed, color = country)) +
+          geom_line() +
+          labs(title = 'Cumulative Cases Starting On Day When Cum Cases is 100'
+               , x = 'Base Day'
+               , y = 'Cumulative Cases')
+      }
+    }else{
+      if(ncount > 10){
+        pd %<>% group_by(date) %>%
+          dplyr::summarise(confirmedPerMil = sum(confirmed, na.rm = T) /sum(population, na.rm = T) ) %>%
+          ungroup()
+        p <- ggplot(pd, aes(x = date, y = confirmedPerMil)) +
+          geom_line() +
+          labs(title = 'Per Capita Worldwide Cases'
+               , x = 'Date'
+               , y = 'Cumulative Cases (per million)')
+      }else{
+        pd %<>% dplyr::filter(baseDay > 0)
+        p <- ggplot(pd, aes(x = baseDay, y = confirmedPerMil, color = country)) +
+          geom_line() +
+          labs(title = 'Per Capita Cumulative Cases Starting On Day When Cum Cases is 100'
+               , x = 'Base Day'
+               , y = 'Cumulative Cases (Per Million)')
+      }
+    }
+    p
+```
+
