@@ -17,15 +17,14 @@ library(DT)
 library(leaflet)
 library(tidytext) # For text analysis
 library(wordcloud2) # For wordcloud
-# Run the script to download data----
-# source('gatheringData.R')
-
+library(DBI) # For remote database connection
+library(RMySQL) # For using MySQL commands
 # Read in data----
 # dataFolder <- '/Users/rnguymon/Box Sync/(Focus Area 4) Business Analytics/1. Course 1 (Guymon & Khandelwal)/HE Material/Live Sessions/Live Session 1/covidDashboard/'
 dataFolder <- ''
-dataDeets <- data.frame(fileName = c('allHeadlines.rds', 'allStocks.rds', 'countryConfirmedDeathRecovered.rds'
-               , 'countryTestPop.rds', 'stateData.rds', 'statePopulation.rds')
-               , dfName = c('ah', 'as', 'ccr', 'ctp', 'sd', 'sp')
+dataDeets <- data.frame(fileName = c('countryConfirmedDeathRecovered.rds'
+               , 'countryTestPop.rds', 'statePopulation.rds')
+               , dfName = c('ccr', 'ctp', 'sp')
                , stringsAsFactors = F)
 # State population data comes from: https://worldpopulationreview.com/states/
 for(dn in 1:nrow(dataDeets)){
@@ -45,7 +44,8 @@ countrySummary <- ccr %>%
   group_by(country, date) %>%
   dplyr::summarise(confirmed = sum(confirmed, na.rm = T)
                    , deaths = sum(deaths, na.rm = T)
-                   , recovered = sum(recovered, na.rm = T)) %>%
+                   , recovered = sum(recovered, na.rm = T)
+                   , .groups = 'drop') %>%
   dplyr::ungroup() %>%
   dplyr::arrange(country, date) %>%
   left_join(ctp[which(!is.na(population)), c('country', 'population')], by = 'country') %>%
@@ -90,6 +90,11 @@ ccr %<>%
   ungroup()
 
 # State data----
+source('databaseConnection.R')
+sd <- dbReadTable(con, 'stateData') %>%
+  dplyr::mutate(
+    date = ymd(date)
+  )
 sd[is.na(sd)] <- 0
 stateSummary <- sd %>%
   left_join(sp[,c('state', 'Pop')], by = 'state') %>%
@@ -137,12 +142,17 @@ mostRecentState <- stateSummary %>%
 
 
 # Stock data----
+as <- dbReadTable(con, 'stockData') %>%
+  dplyr::mutate(
+    date = ymd(date)
+  )
 # Convert the stocks in the djia to something close to the average
 as %<>% dplyr::filter(!is.na(adjusted) & adjusted > 0)
 djia <- as %>% dplyr::filter(djia == 1) %>%
   group_by(date) %>%
   dplyr::summarise(adjusted = sum(adjusted, na.rm = T)/.1474  # For current divisor: https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average
-                   , volume = sum(volume, na.rm = T)) %>% 
+                   , volume = sum(volume, na.rm = T)
+                   , .groups = 'drop') %>% 
   ungroup() %>%
   dplyr::mutate(
     symbol = 'djia'
@@ -169,7 +179,11 @@ djiaChange <- spd %>% dplyr::filter(symbol == 'djia' & mostRecent == 1) %>% pull
 mostRecentStockChange <- spd %>% dplyr::filter(mostRecent == 1) %>%
   dplyr::arrange(desc(adjustedChange))
 
-
+# Headline data----
+ah <- dbReadTable(con, 'allHeadlines') %>%
+  dplyr::mutate(
+    date = ymd(date)
+  )
 headlines_tidy <- ah %>%
   dplyr::mutate(
     headlines = gsub('(<.*>)', '', headlines) %>% gsub('t\\.co|trump|https', '', .)
@@ -340,7 +354,8 @@ server <- function(input, output, session) {
     # Worldwide confirmed cases
     sdt <- countrySummary %>%
       group_by(date) %>%
-      dplyr::summarise(positive = sum(confirmed, na.rm = T)) %>%
+      dplyr::summarise(positive = sum(confirmed, na.rm = T)
+                       , .groups = 'drop') %>%
       ungroup()
     
     # Daily adjusted closing price in long format
@@ -445,7 +460,8 @@ server <- function(input, output, session) {
         group_by(date) %>%
         dplyr::summarise(CONFIRMED = sum(newConfirmed, na.rm = T)
                          , DEATHS = sum(newDeaths, na.rm = T)
-                         , RECOVERED = sum(newRecovered, na.rm = T)) %>%
+                         , RECOVERED = sum(newRecovered, na.rm = T)
+                         , .groups = 'drop') %>%
         ungroup() %>%
         pivot_longer(cols = c('CONFIRMED', 'DEATHS', 'RECOVERED')
                      , names_to = 'type')
@@ -455,7 +471,8 @@ server <- function(input, output, session) {
         group_by(date) %>%
         dplyr::summarise(CONFIRMED = sum(newConfirmed, na.rm = T)/sum(population, na.rm = T)
                          , DEATHS = sum(newDeaths, na.rm = T)/sum(population, na.rm = T)
-                         , RECOVERED = sum(newRecovered, na.rm = T)/sum(population, na.rm = T)) %>%
+                         , RECOVERED = sum(newRecovered, na.rm = T)/sum(population, na.rm = T)
+                         , .groups = 'drop') %>%
         ungroup() %>%
         pivot_longer(cols = c('CONFIRMED', 'DEATHS', 'RECOVERED')
                      , names_to = 'type')
@@ -543,7 +560,8 @@ server <- function(input, output, session) {
     if(input$tpcRadioCountry == 'total'){
       if(ncount > 10){
         pd %<>% group_by(date) %>%
-          dplyr::summarise(confirmed = sum(confirmed, na.rm = T)) %>%
+          dplyr::summarise(confirmed = sum(confirmed, na.rm = T)
+                           , .groups = 'drop') %>%
           ungroup()
         p <- ggplot(pd, aes(x = date, y = confirmed)) +
           geom_line() +
@@ -561,7 +579,8 @@ server <- function(input, output, session) {
     }else{
       if(ncount > 10){
         pd %<>% group_by(date) %>%
-          dplyr::summarise(confirmedPerMil = sum(confirmed, na.rm = T) /sum(population, na.rm = T) ) %>%
+          dplyr::summarise(confirmedPerMil = sum(confirmed, na.rm = T) /sum(population, na.rm = T)
+                           , .groups = 'drop') %>%
           ungroup()
         p <- ggplot(pd, aes(x = date, y = confirmedPerMil)) +
           geom_line() +
@@ -850,7 +869,8 @@ server <- function(input, output, session) {
         group_by(date) %>%
         dplyr::summarise(CONFIRMED = sum(newPositive, na.rm = T)
                          , DEATHS = sum(newDeaths, na.rm = T)
-                         , RECOVERED = sum(newRecovered, na.rm = T)) %>%
+                         , RECOVERED = sum(newRecovered, na.rm = T)
+                         , .groups = 'drop') %>%
         ungroup() %>%
         pivot_longer(cols = c('CONFIRMED', 'DEATHS', 'RECOVERED')
                      , names_to = 'type')
@@ -860,7 +880,8 @@ server <- function(input, output, session) {
         group_by(date) %>%
         dplyr::summarise(CONFIRMED = sum(newPositive, na.rm = T)/sum(population, na.rm = T)
                          , DEATHS = sum(newDeaths, na.rm = T)/sum(population, na.rm = T)
-                         , RECOVERED = sum(newRecovered, na.rm = T)/sum(population, na.rm = T)) %>%
+                         , RECOVERED = sum(newRecovered, na.rm = T)/sum(population, na.rm = T)
+                         , .groups = 'drop') %>%
         ungroup() %>%
         pivot_longer(cols = c('CONFIRMED', 'DEATHS', 'RECOVERED')
                      , names_to = 'type')
@@ -948,7 +969,8 @@ server <- function(input, output, session) {
     if(input$tpcRadioState == 'total'){
       if(ncount > 10){
         pd %<>% group_by(date) %>%
-          dplyr::summarise(positive = sum(positive, na.rm = T)) %>%
+          dplyr::summarise(positive = sum(positive, na.rm = T)
+                           , .groups = 'drop') %>%
           ungroup()
         p <- ggplot(pd, aes(x = date, y = positive)) +
           geom_line() +
@@ -966,7 +988,8 @@ server <- function(input, output, session) {
     }else{
       if(ncount > 10){
         pd %<>% group_by(date) %>%
-          dplyr::summarise(posPerMil = sum(positive, na.rm = T) /sum(population, na.rm = T) ) %>%
+          dplyr::summarise(posPerMil = sum(positive, na.rm = T) /sum(population, na.rm = T)
+                           , .groups = 'drop') %>%
           ungroup()
         p <- ggplot(pd, aes(x = date, y = posPerMil)) +
           geom_line() +

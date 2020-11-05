@@ -1,9 +1,16 @@
+####### GATHERING DATA FOR USE IN THE COVID-19 DASHBOARD #########
+# Some of the data is stored in the directory
+# Some data is stored in an AWS database
+# This file should be scheduled to run on a regular basis
+# Libraries----
 library(tidyverse) # Data prep
 library(magrittr) # Pipes
 library(lubridate) # Dates
 library(tidyquant) # Stock market data
 library(xml2) # For getting html data
 library(rvest) # For getting tables from web pages
+library(RMySQL)
+library(DBI)
 
 ######### INITIAL DATA GATHERING ############
 # dataFolder <- '/Users/rnguymon/Box Sync/(Focus Area 4) Business Analytics/1. Course 1 (Guymon & Khandelwal)/HE Material/Live Sessions/Live Session 1/covidDashboard/'
@@ -245,52 +252,95 @@ get_headlines <- function(startDate = '2020-01-01', endDate = Sys.Date() - 1){
 # write_rds(allStocks, 'allStocks.rds', compress = 'gz')
 # allHeadlines <- get_headlines()
 # write_rds(allHeadlines, 'allHeadlines.rds', compress = 'gz')
+########## CREATE TABLES IN THE DATABASE#########
+# See the databaseCreationOnAWS.R file for setting up the database
 ######### UPDATE DATA FILES ###########
 # Some files are already nicely prepared, so we just get all of the data again
 # The only ones that should be incrementally updated are the daily states (because they're large files) the stocks and headlines
-# Update state data----
-stateDataOld <- readRDS('stateData.rds')
-startDate <- max(stateDataOld$date)
-if(startDate <= Sys.Date()){
-  daties <- seq.Date(from = startDate, to = Sys.Date(), by = 'day')
-  colsToKeep = c('date', 'state', 'positive', 'negative', 'death')
-  allStateData <- data.frame()
-  for(datej in 1:length(daties)){
-    dateToGet <- daties[datej] %>% as.character() %>% gsub('\\-', '', .)
-    for(i in 1:50){
-      # cat(i, '\n')
-      tryCatch({
-        stateAbb <- smd[i,'state'] %>% tolower()
-        oneState <-xml2::read_html(paste0('https://api.covidtracking.com/v1/states/',stateAbb,'/',dateToGet,'.json')) %>%
-          xml_child(1) %>%
-          xml_text() %>%
-          jsonlite::fromJSON() %>%
-          unlist() %>%
-          t() %>%
-          as.data.frame() %>%
-          .[,colsToKeep]
-        allStateData %<>% bind_rows(oneState)
-      }, error = function(e){
-        cat('Problem with ', stateAbb, '\n')
-      })
-    }
-  }
-  allStateData %<>%
-    dplyr::mutate(
-      date = ymd(date)
-      , positive = as.numeric(positive)
-      , negative = as.numeric(negative)
-      , death = as.numeric(death)
+# Update country data----
+# This one is pretty easy to update by just reading in the data from the online source
+countryConfirmedDeathRecovered <- country_cdr()
+write_rds(countryConfirmedDeathRecovered, 'countryConfirmedDeathRecovered.rds', compress = 'gz')
+# Update countryTestPop----
+countryPop <- readRDS('countryPopulation.rds')
+# Combine and calculate tests per capita
+countryTestPop <- countryPop %>%
+  dplyr::mutate(
+    # testsPerMil = round(totalTests/(population*.000001), 1)
+    country = case_when(
+      country == 'United States' ~ 'US'
+      , country == 'South Korea' ~ 'Korea, South'
+      , country == 'Czech Republic' ~ 'Czechia'
+      , T ~ country
     )
+  )
+write_rds(countryTestPop, 'countryTestPop.rds', compress = 'gz')
+# Update state data----
+source('databaseConnection.R')
+stateDataOld <- dbReadTable(con, 'stateData') %>%
+  dplyr::mutate(
+    date = ymd(date)
+  ) %>%
+  dplyr::arrange(state, date)
+startDate <- max(stateDataOld$date) - 1
+daties <- seq.Date(from = startDate, to = Sys.Date()-1, by = 'day')
+colsToKeep = c('date', 'state', 'positive', 'negative', 'death', 'recovered')
+allStateData <- data.frame()
+for(datej in 1:length(daties)){
+  dateToGet <- daties[datej] %>% as.character() %>% gsub('\\-', '', .)
+  for(i in 1:50){
+    # cat(i, '\n')
+    tryCatch({
+      stateAbb <- smd[i,'state'] %>% tolower()
+      oneState <-xml2::read_html(paste0('https://api.covidtracking.com/v1/states/',stateAbb,'/',dateToGet,'.json')) %>%
+        xml_child(1) %>%
+        xml_text() %>%
+        jsonlite::fromJSON() %>%
+        unlist() %>%
+        t() %>%
+        as.data.frame(stringsAsFactors = F) %>%
+        .[,which(names(.) %in% colsToKeep)]
+      allStateData %<>% bind_rows(oneState)
+    }, error = function(e){
+      cat('Problem with ', dateToGet, stateAbb, '\n')
+    })
+    cat(dateToGet, stateAbb, '\r')
+  }
 }
-allStateDataNew <- stateDataOld %>% 
+allStateData %<>%
+  dplyr::mutate(
+    date = ymd(date)
+    , positive = as.numeric(positive)
+    , negative = as.numeric(negative)
+    , death = as.numeric(death)
+    , recovered = as.numeric(recovered)
+  )
+
+stateDataNew <- stateDataOld %>% 
   dplyr::filter(! date %in% daties) %>%
   bind_rows(allStateData) %>%
   dplyr::arrange(state, date)
-write_rds(allStateDataNew, 'stateData.rds', compress = 'gz')
 
+reesults <- dbSendQuery(con, "DROP TABLE IF EXISTS stateData;")
+dbClearResult(reesults)
+createTableQuery <- paste0("CREATE TABLE stateData ("
+                           , "date DATE, "
+                           , "state VARCHAR(10), "
+                           , "positive INT, "
+                           , "negative INT, "
+                           , "recovered INT, "
+                           , "death INT, "
+                           , "PRIMARY KEY (date, state));"
+)
+reesults <- dbSendQuery(con, createTableQuery)
+dbClearResult(reesults)
+
+dplyr::db_insert_into(con, 'stateData', stateDataNew)
 # Update stock data----
-allStocksOld <- readRDS('allStocks.rds')
+allStocksOld <- dbReadTable(con, 'stockData') %>%
+  dplyr::mutate(
+    date = ymd(date)
+  )
 startDate <- (max(allStocksOld$date, na.rm = T)) %>% as.character()
 if(ymd(startDate) < Sys.Date() - 1){
   allStocksNew <- stock_data(symbolsToGet = symbolsToGet
@@ -311,20 +361,61 @@ if(ymd(startDate) < Sys.Date() - 1){
       .[!duplicated(.$joinCol),] %>% 
       dplyr::select(-joinCol) %>%
       dplyr::filter(!is.na(adjusted) & adjusted > 0)
-    write_rds(allStocks, 'allStocks.rds', compress = 'gz')
+    # Save data
+    # write_rds(allStocks, 'allStocks.rds', compress = 'gz')
+    reesults <- dbSendQuery(con, "DROP TABLE IF EXISTS stockData;")
+    dbClearResult(reesults)
+    createTableQuery <- paste0("CREATE TABLE stockData ("
+                               , "symbol VARCHAR(10), "
+                               , "date DATE, "
+                               , "open FLOAT, "
+                               , "high FLOAT, "
+                               , "low FLOAT, "
+                               , "close FLOAT, "
+                               , "volume INT, "
+                               , "adjusted FLOAT, "
+                               , "ticker VARCHAR(10), "
+                               , "djia INT, "
+                               , "PRIMARY KEY (symbol, date));"
+    )
+    reesults <- dbSendQuery(con, createTableQuery)
+    dbClearResult(reesults)
+    
+    dplyr::db_insert_into(con, 'stockData', allStocks)
   }
 }
-# Update news data----
-allHeadlinesOld <- readRDS('allHeadlines.rds')
+# Update headlines data----
+allHeadlinesOld <- dbReadTable(con, 'allHeadlines') %>%
+  dplyr::mutate(
+    date = ymd(date)
+  )
 startDate <- (max(allHeadlinesOld$date, na.rm = T) + 1) %>% as.character()
 if(ymd(startDate) < Sys.Date()){
   allHeadlinesNew <- get_headlines(startDate = startDate, endDate = Sys.Date() - 1)
   if(nrow(allHeadlinesNew) > 0){
     allHeadlines <- bind_rows(allHeadlinesOld, allHeadlinesNew) %>%
       unique()
-    write_rds(allHeadlines, 'allHeadlines.rds', compress = 'gz')
+    # Save data
+    reesults <- dbSendQuery(con, "DROP TABLE IF EXISTS allHeadlines;")
+    dbClearResult(reesults)
+    createTableQuery <- paste0("CREATE TABLE allHeadlines ("
+                               , "headlines BLOB, "
+                               , "date DATE, "
+                               , "type VARCHAR(100));"
+    )
+    reesults <- dbSendQuery(con, createTableQuery)
+    dbClearResult(reesults)
+    
+    dplyr::db_insert_into(con, 'allHeadlines', allHeadlines)
   }
 }
-
+dbDisconnect(con)
+# Create/replace a file with a time stamp of when data was updated----
 cat('Updated coronavirus dashboard data', as.character(Sys.time())
     , file = paste0(dataFolder, 'covid19Data.txt'))
+
+# Remove files from global environment----
+rm(list = ls())
+
+
+
