@@ -8,7 +8,17 @@ library(rvest) # For getting tables from web pages
 ######### INITIAL DATA GATHERING ############
 # dataFolder <- '/Users/rnguymon/Box Sync/(Focus Area 4) Business Analytics/1. Course 1 (Guymon & Khandelwal)/HE Material/Live Sessions/Live Session 1/covidDashboard/'
 dataFolder <- ''
-# Country Covid19 confirmed, deaths, recovered data function----
+# # Convert the state population csv file to an rds file----
+# # Not sure where I got the state population data
+# sp <- read.csv2('statePopulation.csv', sep = ',') %>%
+#   dplyr::mutate(
+#     Growth = as.numeric(Growth)
+#     , growthSince2010 = as.numeric(growthSince2010)
+#     , Percent = as.numeric(Percent)
+#     , density = as.numeric(density)
+#   )
+# write_rds(sp, 'statePopulation.rds')
+# Function to get country Covid19 confirmed, deaths, recovered data----
 # Comes from a Github repository by JohnsHopkins
 # https://github.com/CSSEGISandData/COVID-19/tree/master/csse_covid_19_data/csse_covid_19_time_series
 # Navigate to the raw version of each file and get the url
@@ -44,7 +54,7 @@ country_cdr <- function(){
 }
 
 
-# Country Covid19 test data function----
+# Function to get country Covid19 test data----
 # country_tests <- function(){
 #   # Get tests per country
 #   wp <- xml2::read_html('https://ourworldindata.org/coronavirus-testing-source-data')
@@ -67,7 +77,7 @@ country_cdr <- function(){
 # }
 
 
-# Country population, density, age function----
+# Function to get country population, density, age----
 country_pda <- function(){
   wp2 <- xml2::read_html('https://www.worldometers.info/world-population/population-by-country/')
   cp <- rvest::html_table(wp2)[[1]] %>%
@@ -75,27 +85,30 @@ country_pda <- function(){
     .[,2:ncol(.)]
   colnames(cp) <- c('country', 'population', 'yearlyChangePct', 'netChange', 'density'
                     , 'landArea', 'netMigrants', 'fertRate', 'medAge', 'urbanPopPct', 'worldSharePct')
-  
+
   cp[,2:ncol(cp)] %<>% apply(., 2, function(x) gsub(',|%| ', '', x) %>% as.numeric(.))
   return(cp)
 }
 
+# State metadata----
+smd <- xml2::read_html('https://api.covidtracking.com/v1/states/info.json') %>%
+  xml_child(1) %>%
+  xml_text() %>%
+  jsonlite::fromJSON() %>%
+  dplyr::select(state, name, fips) %>%
+  dplyr::arrange(fips)
 
-# Get covid testing and results per state----
-# url: https://covidtracking.com/api/
-covid_states <- function(){
-  wp0 <- xml2::read_html('https://covidtracking.com/api/states/daily')
-  stateData <- wp0 %>% xml_child(1) %>% xml_text() %>%
+# Function to get covid data for one state----
+singleStateHistorical <- function(stateAbb = 'il', colsToKeep = c('date', 'state', 'positive', 'negative', 'recovered', 'death')){
+  oneState <- xml2::read_html(paste0('https://api.covidtracking.com/v1/states/',stateAbb,'/daily.json')) %>%
+    xml_child(1) %>%
+    xml_text() %>%
     jsonlite::fromJSON() %>%
-    dplyr::mutate(
-      date = ymd(date)
-    ) %>%
-    dplyr::select(-dateChecked)
-  return(stateData)
+    .[,colsToKeep]
+  return(oneState)
 }
 
-
-# Stock market data----
+# Function to get stock market data----
 # tq_index_options() # Lists the different index for which we can get info
 # sp500 <- tq_index('SP500') # Get a list of funds in S&P500
 dj <- tq_index('DOW') # Get a list of funds in dow jones
@@ -119,7 +132,7 @@ stock_data <- function(symbolsToGet = 'tsla', startDate = '2020-01-01', endDate 
 }
 
 
-# News headlines function----
+# Function to get news headlines----
 # Create a sequence of dates for which to gather news headlines
 get_headlines <- function(startDate = '2020-01-01', endDate = Sys.Date() - 1){
   daties <- seq.Date(from = ymd(startDate), to = endDate, by = 'day') %>% as.character()
@@ -127,7 +140,7 @@ get_headlines <- function(startDate = '2020-01-01', endDate = Sys.Date() - 1){
   for(d in daties){
     cat('Starting', d, ' ')
     dateToFetch <- ymd(d)
-    
+
     # Get html of news headlines
     nh <- xml2::read_html(paste0('https://www.wincalendar.com/Calendar/Date/'
                                  , month(dateToFetch, label = T, abbr = F), '-'
@@ -137,10 +150,10 @@ get_headlines <- function(startDate = '2020-01-01', endDate = Sys.Date() - 1){
     )
     # nh %>% xml_child(2) %>% xml_child(1) %>% xml_text()
     # Get the relevant text from the relevant node
-    nht <- nh %>% xml_child(2) %>% 
-      xml_child(1) %>% 
-      xml_child(4) %>% 
-      xml_child(2) %>% 
+    nht <- nh %>% xml_child(2) %>%
+      xml_child(1) %>%
+      xml_child(4) %>%
+      xml_child(2) %>%
       xml_text()
     # Top Tweets
     topTweets <- gsub('^.*Most liked, retweeted and popular Tweets', '', nht) %>%
@@ -164,7 +177,7 @@ get_headlines <- function(startDate = '2020-01-01', endDate = Sys.Date() - 1){
       gsub('\\t|\\n|\\r', '', .) %>%
       gsub('^\\||\\|{2}', '', .) %>%
       strsplit(., '\\|')
-    
+
     tempTnh <- data.frame(headlines = unlist(topNewsHeadlines)
                           , stringsAsFactors = F) %>%
       dplyr::mutate(
@@ -193,41 +206,91 @@ get_headlines <- function(startDate = '2020-01-01', endDate = Sys.Date() - 1){
   return(allHeadlines)
 }
 
-# Run functions and write data to disk for the first time----
-countryConfirmedDeathRecovered <- country_cdr()
-write_csv(countryConfirmedDeathRecovered, paste0(dataFolder, 'countryConfirmedDeathRecovered.csv'))
-# countryTests <- country_tests()
-# write_csv(countryTests, paste0(dataFolder, 'countryTests.csv'))
+# # Run functions and write data to disk for the first time----
+# countryConfirmedDeathRecovered <- country_cdr()
+# write_rds(countryConfirmedDeathRecovered, 'countryConfirmedDeathRecovered.rds', compress = 'gz')
 # countryPop <- country_pda() # Probably doesn't change on a daily basis
-# write_csv(countryPop, paste0(dataFolder, 'countryPopulation.csv'))
-countryPop <- read.csv(paste0(dataFolder, 'countryPopulation.csv'), stringsAsFactors = F)
-# Combine and calculate tests per capita
-# countryTestPop <- left_join(countryTests, countryPop, by = 'country') %>%
-countryTestPop <- countryPop %>%
-  dplyr::mutate(
-    # testsPerMil = round(totalTests/(population*.000001), 1)
-    country = case_when(
-      country == 'United States' ~ 'US'
-      , country == 'South Korea' ~ 'Korea, South'
-      , country == 'Czech Republic' ~ 'Czechia'
-      , T ~ country
-    )
-  )
-write_csv(countryTestPop, paste0(dataFolder, 'countryTestPop.csv'))
-stateData <- covid_states()
-write_csv(stateData, paste0(dataFolder, 'stateData.csv'))
+# write_rds(countryPop, 'countryPopulation.rds', compress = 'gz')
+# countryPop <- readRDS('countryPopulation.rds')
+# # Combine and calculate tests per capita
+# countryTestPop <- countryPop %>%
+#   dplyr::mutate(
+#     # testsPerMil = round(totalTests/(population*.000001), 1)
+#     country = case_when(
+#       country == 'United States' ~ 'US'
+#       , country == 'South Korea' ~ 'Korea, South'
+#       , country == 'Czech Republic' ~ 'Czechia'
+#       , T ~ country
+#     )
+#   )
+# write_rds(countryTestPop, 'countryTestPop.rds', compress = 'gz')
+# # Loop through and get data for all states
+# allStateData <- data.frame()
+# for(i in 1:50){
+#   cat(i, '\n')
+#   tryCatch({
+#     stateAbb <- smd[i,'state'] %>% tolower()
+#     oneState <- singleStateHistorical(stateAbb = stateAbb)
+#     allStateData %<>% bind_rows(oneState)
+#   }, error = function(e){
+#     cat('Problem with ', stateAbb, '\n')
+#   })
+# }
+# allStateData %<>%
+#   dplyr::mutate(
+#     date = ymd(date)
+#   )
+# write_rds(allStateData, 'stateData.rds', compress = 'gz')
 # allStocks <- stock_data(symbolsToGet = symbolsToGet)
-# write_csv(allStocks, paste0(dataFolder, 'allStocks.csv'))
+# write_rds(allStocks, 'allStocks.rds', compress = 'gz')
 # allHeadlines <- get_headlines()
-# write_csv(allHeadlines, paste0(dataFolder, 'allHeadlines.csv'))
+# write_rds(allHeadlines, 'allHeadlines.rds', compress = 'gz')
 ######### UPDATE DATA FILES ###########
 # Some files are already nicely prepared, so we just get all of the data again
-# The only ones that should be incrementally updated are the stocks and headlines
+# The only ones that should be incrementally updated are the daily states (because they're large files) the stocks and headlines
+# Update state data----
+stateDataOld <- readRDS('stateData.rds')
+startDate <- max(stateDataOld$date)
+if(startDate <= Sys.Date()){
+  daties <- seq.Date(from = startDate, to = Sys.Date(), by = 'day')
+  colsToKeep = c('date', 'state', 'positive', 'negative', 'death')
+  allStateData <- data.frame()
+  for(datej in 1:length(daties)){
+    dateToGet <- daties[datej] %>% as.character() %>% gsub('\\-', '', .)
+    for(i in 1:50){
+      # cat(i, '\n')
+      tryCatch({
+        stateAbb <- smd[i,'state'] %>% tolower()
+        oneState <-xml2::read_html(paste0('https://api.covidtracking.com/v1/states/',stateAbb,'/',dateToGet,'.json')) %>%
+          xml_child(1) %>%
+          xml_text() %>%
+          jsonlite::fromJSON() %>%
+          unlist() %>%
+          t() %>%
+          as.data.frame() %>%
+          .[,colsToKeep]
+        allStateData %<>% bind_rows(oneState)
+      }, error = function(e){
+        cat('Problem with ', stateAbb, '\n')
+      })
+    }
+  }
+  allStateData %<>%
+    dplyr::mutate(
+      date = ymd(date)
+      , positive = as.numeric(positive)
+      , negative = as.numeric(negative)
+      , death = as.numeric(death)
+    )
+}
+allStateDataNew <- stateDataOld %>% 
+  dplyr::filter(! date %in% daties) %>%
+  bind_rows(allStateData) %>%
+  dplyr::arrange(state, date)
+write_rds(allStateDataNew, 'stateData.rds', compress = 'gz')
+
 # Update stock data----
-allStocksOld <- read.csv(paste0(dataFolder, 'allStocks.csv'), stringsAsFactors = F) %>%
-  dplyr::mutate(
-    date = ymd(date)
-  )
+allStocksOld <- readRDS('allStocks.rds')
 startDate <- (max(allStocksOld$date, na.rm = T)) %>% as.character()
 if(ymd(startDate) < Sys.Date() - 1){
   allStocksNew <- stock_data(symbolsToGet = symbolsToGet
@@ -248,21 +311,18 @@ if(ymd(startDate) < Sys.Date() - 1){
       .[!duplicated(.$joinCol),] %>% 
       dplyr::select(-joinCol) %>%
       dplyr::filter(!is.na(adjusted) & adjusted > 0)
-    write_csv(allStocks, paste0(dataFolder, 'allStocks.csv'))
+    write_rds(allStocks, 'allStocks.rds', compress = 'gz')
   }
 }
 # Update news data----
-allHeadlinesOld <- read.csv(paste0(dataFolder, 'allHeadlines.csv'), stringsAsFactors = F) %>%
-  dplyr::mutate(
-    date = ymd(date)
-  )
+allHeadlinesOld <- readRDS('allHeadlines.rds')
 startDate <- (max(allHeadlinesOld$date, na.rm = T) + 1) %>% as.character()
 if(ymd(startDate) < Sys.Date()){
   allHeadlinesNew <- get_headlines(startDate = startDate, endDate = Sys.Date() - 1)
   if(nrow(allHeadlinesNew) > 0){
     allHeadlines <- bind_rows(allHeadlinesOld, allHeadlinesNew) %>%
       unique()
-    write_csv(allHeadlines, paste0(dataFolder, 'allHeadlines.csv'))
+    write_rds(allHeadlines, 'allHeadlines.rds', compress = 'gz')
   }
 }
 

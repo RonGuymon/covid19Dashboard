@@ -18,18 +18,18 @@ library(leaflet)
 library(tidytext) # For text analysis
 library(wordcloud2) # For wordcloud
 # Run the script to download data----
-source('gatheringData.R')
+# source('gatheringData.R')
 
 # Read in data----
 # dataFolder <- '/Users/rnguymon/Box Sync/(Focus Area 4) Business Analytics/1. Course 1 (Guymon & Khandelwal)/HE Material/Live Sessions/Live Session 1/covidDashboard/'
 dataFolder <- ''
-dataDeets <- data.frame(fileName = c('allHeadlines.csv', 'allStocks.csv', 'countryConfirmedDeathRecovered.csv'
-               , 'countryTestPop.csv', 'stateData.csv', 'statePopulation.csv')
+dataDeets <- data.frame(fileName = c('allHeadlines.rds', 'allStocks.rds', 'countryConfirmedDeathRecovered.rds'
+               , 'countryTestPop.rds', 'stateData.rds', 'statePopulation.rds')
                , dfName = c('ah', 'as', 'ccr', 'ctp', 'sd', 'sp')
                , stringsAsFactors = F)
 # State population data comes from: https://worldpopulationreview.com/states/
 for(dn in 1:nrow(dataDeets)){
-  temp <- read.csv(paste0(dataFolder, dataDeets$fileName[dn]), stringsAsFactors = F)
+  temp <- readRDS(paste0(dataFolder, dataDeets$fileName[dn]))
   if('date' %in% names(temp)){
     temp %<>%
       dplyr::mutate(
@@ -99,10 +99,11 @@ stateSummary <- sd %>%
   dplyr::mutate(
     maxDate = ifelse(date == max(date, na.rm = T), 1, 0)
     , population = population*.000001
+    , totalTestResults = positive + negative
     , posPct = positive / totalTestResults
     , deathPct = death / positive
     , deathRate = death / positive
-    , hospPct = hospitalized / positive
+    # , hospPct = hospitalized / positive
     , posPerMil = positive / population
     , deathPerMil = death / population
     , recoveredPerMil = recovered / population
@@ -116,7 +117,7 @@ stateSummary <- sd %>%
     , newDeathsPerMil = newDeaths / population
     , newDeathsChange = newDeaths - dplyr::lag(newDeaths, 1)
     , newDeathsChange = ifelse(is.na(newDeathsChange), 0, newDeathsChange)
-    , newTotal = total - dplyr::lag(total, 1)
+    , newTotal = totalTestResults - dplyr::lag(totalTestResults, 1)
     , newTotal = ifelse(is.na(newTotal), 0, newTotal)
     , newTotalChange = newTotal - dplyr::lag(newTotal, 1)
     , newTotalChange = ifelse(is.na(newTotalChange), 0, newTotalChange)
