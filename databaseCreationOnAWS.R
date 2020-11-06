@@ -80,7 +80,7 @@ reesults <- dbSendQuery(con, createTableQuery)
 dbClearResult(reesults)
 
 dplyr::db_insert_into(con, 'stockData', stockData)
-# Check to make sure it worked----
+# Check to make sure it worked
 testData <- dbReadTable(con, 'stockData')
 rm(testData)
 
@@ -97,8 +97,33 @@ reesults <- dbSendQuery(con, createTableQuery)
 dbClearResult(reesults)
 
 dplyr::db_insert_into(con, 'allHeadlines', allHeadlines)
-# Check to make sure it worked----
+# Check to make sure it worked
 testData <- dbReadTable(con, 'allHeadlines')
 rm(testData)
+
+# countryConfirmedDeathRecovered table----
+countryConfirmedDeathRecovered <- readRDS('countryConfirmedDeathRecovered.rds') %>%
+  dplyr::rename(Lng = Long)
+reesults <- dbSendQuery(con, "DROP TABLE IF EXISTS ccdr;")
+dbClearResult(reesults)
+createTableQuery <- paste0("CREATE TABLE ccdr ("
+                           , "state VARCHAR(100), "
+                           , "country VARCHAR(100), "
+                           , "Lat FLOAT, "
+                           , "Lng FLOAT, "
+                           , "date DATE, "
+                           , "confirmed INT, "
+                           , "deaths INT, "
+                           , "recovered INT, "
+                           , "PRIMARY KEY (country, state, date));"
+)
+reesults <- dbSendQuery(con, createTableQuery)
+dbClearResult(reesults)
+
+dplyr::db_insert_into(con, 'ccdr', countryConfirmedDeathRecovered)
+# Check to make sure it worked
+testData <- dbReadTable(con, 'ccdr')
+rm(testData)
+
 # Disconnect----
 dbDisconnect(con)

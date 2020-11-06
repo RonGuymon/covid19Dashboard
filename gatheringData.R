@@ -11,7 +11,7 @@ library(xml2) # For getting html data
 library(rvest) # For getting tables from web pages
 library(RMySQL)
 library(DBI)
-
+setwd("/Users/rnguymon/Box Sync/(Focus Area 4) Business Analytics/1. Course 1 (Guymon & Khandelwal)/HE Material/Live Sessions/Live Session 1/covidDashboard/dashboard") # Need to set this so that when it runs automatically it will send things to the correct location
 ######### INITIAL DATA GATHERING ############
 # dataFolder <- '/Users/rnguymon/Box Sync/(Focus Area 4) Business Analytics/1. Course 1 (Guymon & Khandelwal)/HE Material/Live Sessions/Live Session 1/covidDashboard/'
 dataFolder <- ''
@@ -257,26 +257,42 @@ get_headlines <- function(startDate = '2020-01-01', endDate = Sys.Date() - 1){
 ######### UPDATE DATA FILES ###########
 # Some files are already nicely prepared, so we just get all of the data again
 # The only ones that should be incrementally updated are the daily states (because they're large files) the stocks and headlines
-# Update country data----
-# This one is pretty easy to update by just reading in the data from the online source
-countryConfirmedDeathRecovered <- country_cdr()
-write_rds(countryConfirmedDeathRecovered, 'countryConfirmedDeathRecovered.rds', compress = 'gz')
-# Update countryTestPop----
-countryPop <- readRDS('countryPopulation.rds')
-# Combine and calculate tests per capita
-countryTestPop <- countryPop %>%
-  dplyr::mutate(
-    # testsPerMil = round(totalTests/(population*.000001), 1)
-    country = case_when(
-      country == 'United States' ~ 'US'
-      , country == 'South Korea' ~ 'Korea, South'
-      , country == 'Czech Republic' ~ 'Czechia'
-      , T ~ country
-    )
-  )
-write_rds(countryTestPop, 'countryTestPop.rds', compress = 'gz')
-# Update state data----
 source('databaseConnection.R')
+# Update country data----
+countryConfirmedDeathRecovered <- country_cdr() %>%
+  dplyr::rename(Lng = Long)
+write_rds(countryConfirmedDeathRecovered, 'countryConfirmedDeathRecovered.rds', compress = 'gz')
+reesults <- dbSendQuery(con, "DROP TABLE IF EXISTS ccdr;")
+dbClearResult(reesults)
+createTableQuery <- paste0("CREATE TABLE ccdr ("
+                           , "state VARCHAR(100), "
+                           , "country VARCHAR(100), "
+                           , "Lat FLOAT, "
+                           , "Lng FLOAT, "
+                           , "date DATE, "
+                           , "confirmed INT, "
+                           , "deaths INT, "
+                           , "recovered INT, "
+                           , "PRIMARY KEY (country, state, date));"
+)
+reesults <- dbSendQuery(con, createTableQuery)
+dbClearResult(reesults)
+dplyr::db_insert_into(con, 'ccdr', countryConfirmedDeathRecovered)
+# Update countryTestPop----
+# countryPop <- readRDS('countryPopulation.rds')
+# Combine and calculate tests per capita
+# countryTestPop <- countryPop %>%
+#   dplyr::mutate(
+#     # testsPerMil = round(totalTests/(population*.000001), 1)
+#     country = case_when(
+#       country == 'United States' ~ 'US'
+#       , country == 'South Korea' ~ 'Korea, South'
+#       , country == 'Czech Republic' ~ 'Czechia'
+#       , T ~ country
+#     )
+#   )
+# write_rds(countryTestPop, 'countryTestPop.rds', compress = 'gz')
+# Update state data----
 stateDataOld <- dbReadTable(con, 'stateData') %>%
   dplyr::mutate(
     date = ymd(date)

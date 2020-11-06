@@ -22,10 +22,10 @@ library(RMySQL) # For using MySQL commands
 # Read in data----
 # dataFolder <- '/Users/rnguymon/Box Sync/(Focus Area 4) Business Analytics/1. Course 1 (Guymon & Khandelwal)/HE Material/Live Sessions/Live Session 1/covidDashboard/'
 dataFolder <- ''
-dataDeets <- data.frame(fileName = c('countryConfirmedDeathRecovered.rds'
-               , 'countryTestPop.rds', 'statePopulation.rds')
-               , dfName = c('ccr', 'ctp', 'sp')
+dataDeets <- data.frame(fileName = c('countryTestPop.rds')
+               , dfName = c('ctp')
                , stringsAsFactors = F)
+
 # State population data comes from: https://worldpopulationreview.com/states/
 for(dn in 1:nrow(dataDeets)){
   temp <- readRDS(paste0(dataFolder, dataDeets$fileName[dn]))
@@ -38,7 +38,14 @@ for(dn in 1:nrow(dataDeets)){
   assign(dataDeets$dfName[dn], temp)
 }
 rm(temp, dataDeets)
+sp <- readRDS('statePopulation.rds') # State population
+ctr <- readRDS('countryTestPop.rds') # Country test population
+source('databaseConnection.R')
 # World data----  
+ccr <- dbReadTable(con, 'ccdr') %>%
+  dplyr::mutate(
+    date = ymd(date)
+  )
 countrySummary <- ccr %>%
   dplyr::mutate(country = trimws(country)) %>%
   group_by(country, date) %>%
@@ -77,8 +84,8 @@ mostRecent <- countrySummary %>%
 
 ccr %<>%
   dplyr::mutate(country = trimws(country)) %>%
-  dplyr::arrange(state, country, Lat, Long, date) %>%
-  group_by(state, country, Lat, Long) %>%
+  dplyr::arrange(state, country, Lat, Lng, date) %>%
+  group_by(state, country, Lat, Lng) %>%
   dplyr::mutate(
     confirmed = ifelse(is.na(confirmed) & date == min(date), 0, confirmed)
     , deaths = ifelse(is.na(deaths) & date == min(date), 0, deaths)
@@ -90,7 +97,6 @@ ccr %<>%
   ungroup()
 
 # State data----
-source('databaseConnection.R')
 sd <- dbReadTable(con, 'stateData') %>%
   dplyr::mutate(
     date = ymd(date)
@@ -601,13 +607,13 @@ server <- function(input, output, session) {
   # Map the most recent day----
   output$mostRecentMap <- renderLeaflet({
     lpd <- fd()$mapData %>%
-      group_by(Lat, Long) %>%
+      group_by(Lat, Lng) %>%
       dplyr::mutate(
         maxDate = ifelse(date == max(date), 1, 0)
       ) %>%
       ungroup() %>%
       dplyr::filter(maxDate == 1) %>%
-      group_by(Lat, Long) %>%
+      group_by(Lat, Lng) %>%
       dplyr::mutate(
         pctDied = round(deaths/confirmed, 2)
         , pctDied = ifelse(confirmed == 0 & deaths == 0, 0, pctDied)
@@ -627,7 +633,7 @@ server <- function(input, output, session) {
     #                          , na.color = 'transparent')
     m <- leaflet(lpd) %>%
       addTiles() %>%
-      addCircleMarkers(lng = ~Long, lat = ~Lat
+      addCircleMarkers(lng = ~Lng, lat = ~Lat
                        , radius = ~ldeaths
                        , color = 'red'
                        , fill = F
