@@ -1,15 +1,15 @@
 ######## CREATE DATABASE FOR RUBRIC FILES IN AN AWS MySQL DATABASE #########
 # Log in at: console.aws.amazon.com
-# Create a database
-# DB instance identifier: covid19Dashboard
-# Master username: JeshuaOfJozadak
-# Master password: (9HhG2M&$3
-# Host: covid19dashboard.cut6x5kwuxm3.us-east-1.rds.amazonaws.com
-# DB name: rubricsDb
+# Create a MySQL database instance. Make sure that all inbound traffic is allowed
+# DB instance identifier: imba
+masterUser <- 'gies2021' # Master username
+masterPw <- '$hdU8_z[uqi' # Master password
+host <- 'imba.ccgqvhj5h01w.us-east-1.rds.amazonaws.com' # Host
+dbName <- 'dashboardData' # DB name
 # # Set environmental variables----
-# Sys.setenv(covidDashboard_username  = 'JeshuaOfJozadak'
-#            , covidDashboard_password = '(9HhG2M&$3'
-#            , covidDashboard_host = 'covid19dashboard.cut6x5kwuxm3.us-east-1.rds.amazonaws.com' # Endpoint in Connectivity & security
+# Sys.setenv(covidDashboard_username  = masterUser
+#            , covidDashboard_password = masterPw
+#            , covidDashboard_host = host
 #            ) 
 ####### IN R #########
 library(tidyverse)
@@ -22,9 +22,9 @@ library(DBI)
 
 # Prepare data from existing rubric csv files----
 con <- dbConnect(RMySQL::MySQL()
-                 , user = 'JeshuaOfJozadak'
-                 , password =  '(9HhG2M&$3'
-                 , host = 'covid19dashboard.cut6x5kwuxm3.us-east-1.rds.amazonaws.com' 
+                 , user = masterUser
+                 , password =  masterPw
+                 , host = host
                  , dbname = ''
 )
 # Create the database if it doesn't exist----
@@ -33,9 +33,9 @@ dbClearResult(createDb)
 # Create a new connection to the named database----
 dbDisconnect(con)
 con <- dbConnect(RMySQL::MySQL()
-                 , user = 'JeshuaOfJozadak'
-                 , password =  '(9HhG2M&$3'
-                 , host = 'covid19dashboard.cut6x5kwuxm3.us-east-1.rds.amazonaws.com' 
+                 , user = masterUser
+                 , password =  masterPw
+                 , host = host
                  , dbname = 'dashboardData'
 )
 # stateData table----

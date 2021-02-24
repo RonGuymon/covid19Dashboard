@@ -3,8 +3,8 @@
 # variables, or encrypt them. This is publicly available data, so I'm not too
 # worried about it. This is more of an example.
 con <- dbConnect(RMySQL::MySQL()
-                 , user = 'JeshuaOfJozadak'
-                 , password =  '(9HhG2M&$3'
-                 , host = 'covid19dashboard.cut6x5kwuxm3.us-east-1.rds.amazonaws.com' 
+                 , user = 'gies2021'
+                 , password =  '$hdU8_z[uqi'
+                 , host = 'imba.ccgqvhj5h01w.us-east-1.rds.amazonaws.com' 
                  , dbname = 'dashboardData'
 )
